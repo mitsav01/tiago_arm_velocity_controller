@@ -1,0 +1,7 @@
+<library path="tiago_arm_velocity_controller">
+  <class name="tiago_arm_velocity_controller/TiagoArmVelocityPositionController"
+         type="tiago_arm_controllers::TiagoArmVelocityPositionController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>Velocity position controller for TIAGo arm.</description>
+  </class>
+</library>
