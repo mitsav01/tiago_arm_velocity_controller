@@ -1,6 +1,6 @@
 controller_manager:
   ros__parameters:
-    update_rate: 500  # Hz
+    update_rate: 1000  # Hz
 
     arm_left_velocity_controller:
       type: tiago_arm_velocity_controller/TiagoArmVelocityPositionController
@@ -18,7 +18,18 @@ arm_left_velocity_controller:
       - arm_left_5_joint
       - arm_left_6_joint
       - arm_left_7_joint
+
+    # Original HSR Gains (tune as needed)
+    feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    p_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # Anti-jerk acceleration bounds (rad/s^2)
+    max_accelerations: [1.5, 1.5, 1.5, 2.0, 2.0, 2.5, 2.5]
+
     cmd_timeout_seconds: 0.2
+    velocity_filter_alpha: 0.95
 
 arm_right_velocity_controller:
   ros__parameters:
@@ -30,4 +41,15 @@ arm_right_velocity_controller:
       - arm_right_5_joint
       - arm_right_6_joint
       - arm_right_7_joint
+
+    # Original HSR Gains (tune as needed)
+    feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
+    p_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # Anti-jerk acceleration bounds (rad/s^2)
+    max_accelerations: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
     cmd_timeout_seconds: 0.2
+    velocity_filter_alpha: 0.95
