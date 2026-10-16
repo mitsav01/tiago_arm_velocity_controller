@@ -19,10 +19,9 @@ arm_left_velocity_controller:
       - arm_left_6_joint
       - arm_left_7_joint
 
-    # Original HSR Gains (tune as needed)
     feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    p_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    p_gains: [0.1, 0.1, 0.1, 0.1, 0.05, 0.02, 0.02]
+    i_gains: [0.01, 0.01, 0.01, 0.01, 0.005, 0.001, 0.001]
     d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
     # Anti-jerk acceleration bounds (rad/s^2)
@@ -42,13 +41,12 @@ arm_right_velocity_controller:
       - arm_right_6_joint
       - arm_right_7_joint
 
-    # Original HSR Gains (tune as needed)
     feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    p_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-    i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    p_gains: [0.1, 0.1, 0.1, 0.1, 0.05, 0.02, 0.02]
+    i_gains: [0.01, 0.01, 0.01, 0.01, 0.005, 0.001, 0.001]
     d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-    # Anti-jerk acceleration bounds (rad/s^2)
+    # Conservative acceleration bounds for initial testing (rad/s^2)
     max_accelerations: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
 
     cmd_timeout_seconds: 0.2
