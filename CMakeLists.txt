@@ -19,9 +19,7 @@ find_package(urdf REQUIRED)
 add_library(${PROJECT_NAME} SHARED 
   src/tiago_arm_velocity_controller.cpp
 )
-target_include_directories(${PROJECT_NAME} PRIVATE 
-  include
-)
+
 target_compile_features(${PROJECT_NAME} PUBLIC c_std_99 cxx_std_17)
 
 ament_target_dependencies(${PROJECT_NAME}
@@ -45,11 +43,6 @@ install(
   ARCHIVE DESTINATION lib
   LIBRARY DESTINATION lib
   RUNTIME DESTINATION bin
-)
-
-install(
-  DIRECTORY include/
-  DESTINATION include
 )
 
 install(
