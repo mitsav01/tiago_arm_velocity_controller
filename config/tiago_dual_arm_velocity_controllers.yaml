@@ -19,14 +19,29 @@ arm_left_velocity_controller:
       - arm_left_6_joint
       - arm_left_7_joint
 
+    # Unitless feedforward scaling (1.0 = direct velocity integration)
     feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    p_gains: [0.1, 0.1, 0.1, 0.1, 0.05, 0.02, 0.02]
-    i_gains: [0.01, 0.01, 0.01, 0.01, 0.005, 0.001, 0.001]
+
+    # Unitless proportional tracking gains
+    p_gains: [0.2, 0.2, 0.2, 0.2, 0.1, 0.05, 0.05]
+
+    # Integral gains (1/s) - start at 0.0 to prevent steady-state integration windup
+    i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # Derivative damping gains (s) - start at 0.0 to avoid 1 kHz noise sensitivity
     d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-    # Optional dynamic limiter params (if implemented in C++)
-    max_accelerations: [1.5, 1.5, 1.5, 2.0, 2.0, 2.5, 2.5]
+    # Kinematic safety boundaries (rad/s and rad/s^2)
+    max_velocities: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
+    max_accelerations: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+    # Tracking error fault threshold in radians (~0.15 rad ≈ 8.6 degrees)
+    max_position_error: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
+
+    # Communication watchdog timeout in seconds
     cmd_timeout_seconds: 0.2
+
+    # First-order low-pass filter alpha for measured velocity (0.0 < alpha <= 1.0)
     velocity_filter_alpha: 0.95
 
 arm_right_velocity_controller:
@@ -40,12 +55,27 @@ arm_right_velocity_controller:
       - arm_right_6_joint
       - arm_right_7_joint
 
+    # Unitless feedforward scaling
     feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
-    p_gains: [0.1, 0.1, 0.1, 0.1, 0.05, 0.02, 0.02]
-    i_gains: [0.01, 0.01, 0.01, 0.01, 0.005, 0.001, 0.001]
+
+    # Unitless proportional tracking gains
+    p_gains: [0.2, 0.2, 0.2, 0.2, 0.1, 0.05, 0.05]
+
+    # Integral gains (1/s)
+    i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+
+    # Derivative damping gains (s)
     d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
-    # Conservative acceleration bounds for initial testing (rad/s^2)
+    # Kinematic safety boundaries (rad/s and rad/s^2)
+    max_velocities: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
     max_accelerations: [0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5]
+
+    # Tracking error fault threshold in radians (~0.15 rad ≈ 8.6 degrees)
+    max_position_error: [0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15]
+
+    # Communication watchdog timeout in seconds
     cmd_timeout_seconds: 0.2
+
+    # First-order low-pass filter alpha for measured velocity
     velocity_filter_alpha: 0.95
