@@ -4,12 +4,14 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <atomic>
 #include <unordered_set>
 
 #include <rclcpp/rclcpp.hpp>
 #include <hardware_interface/types/hardware_interface_type_values.hpp>
 #include <controller_interface/controller_interface.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <realtime_tools/realtime_buffer.hpp>
 #include <realtime_tools/realtime_publisher.hpp>
 #include <pluginlib/class_list_macros.hpp>
@@ -176,27 +178,52 @@ public:
     integrator_.assign(n_joints_, 0.0);
     prev_error_.assign(n_joints_, 0.0);
     filtered_vel_.assign(n_joints_, 0.0);
+    prev_pos_.assign(n_joints_, 0.0);
+    has_valid_pos_.assign(n_joints_, false);
+    nan_pos_ticks_.assign(n_joints_, 0);
     joints_urdf_.resize(n_joints_);
+    urdf_ready_.store(false, std::memory_order_release);
 
-    // Zero-allocation diagnostics publisher pre-allocation
+    // Diagnostics publisher pre-allocation
     auto publisher = node->create_publisher<std_msgs::msg::Float64MultiArray>("~/controller_state", 1);
     pub_ = std::make_unique<realtime_tools::RealtimePublisher<std_msgs::msg::Float64MultiArray>>(publisher);
     pub_->msg_.data.resize(n_joints_, 0.0);
 
-    // Parse URDF limits if available
-    if (node->has_parameter("robot_description")) {
-      urdf_ = std::make_shared<urdf::Model>();
-      std::string urdf_string = node->get_parameter("robot_description").as_string();
-      if (urdf_->initString(urdf_string)) {
+    // Parse URDF limits from parameter or /robot_description TransientLocal topic
+    auto parse_urdf = [this, node](const std::string &urdf_string) {
+      if (urdf_string.empty() || urdf_ready_.load(std::memory_order_acquire)) {
+        return;
+      }
+      auto model = std::make_shared<urdf::Model>();
+      if (model->initString(urdf_string)) {
+        urdf_ = model;
         for (size_t i = 0; i < n_joints_; i++) {
           joints_urdf_[i] = urdf_->getJoint(joint_names_[i]);
+          if (joints_urdf_[i] && joints_urdf_[i]->limits) {
+            RCLCPP_INFO(
+              node->get_logger(), "Joint %s URDF limits: [%.3f, %.3f] rad",
+              joint_names_[i].c_str(),
+              joints_urdf_[i]->limits->lower,
+              joints_urdf_[i]->limits->upper);
+          }
         }
+        urdf_ready_.store(true, std::memory_order_release);
         RCLCPP_INFO(node->get_logger(), "Successfully parsed TIAGo robot_description for joint limits.");
       } else {
         RCLCPP_WARN(node->get_logger(), "Failed to parse robot_description string. Joint limits disabled.");
       }
+    };
+
+    if (node->has_parameter("robot_description")) {
+      parse_urdf(node->get_parameter("robot_description").as_string());
     } else {
-      RCLCPP_INFO(node->get_logger(), "robot_description parameter not detected on node. Joint limits disabled.");
+      sub_urdf_ = node->create_subscription<std_msgs::msg::String>(
+        "/robot_description",
+        rclcpp::QoS(1).transient_local().reliable(),
+        [parse_urdf](const std_msgs::msg::String::SharedPtr msg) {
+          parse_urdf(msg->data);
+        });
+      RCLCPP_INFO(node->get_logger(), "Subscribed to /robot_description for joint limits.");
     }
 
     sub_command_ = node->create_subscription<std_msgs::msg::Float64MultiArray>(
@@ -211,12 +238,25 @@ public:
   {
     for (size_t i = 0; i < n_joints_; i++) {
       double pos = state_interfaces_[i * 2].get_value();
-      last_position_cmd_[i] = pos;
       last_commanded_vel_[i] = 0.0;
       integrator_[i] = 0.0;
       prev_error_[i] = 0.0;
       filtered_vel_[i] = 0.0;
-      command_interfaces_[i].set_value(pos);
+      nan_pos_ticks_[i] = 0;
+
+      if (std::isfinite(pos)) {
+        last_position_cmd_[i] = pos;
+        prev_pos_[i] = pos;
+        has_valid_pos_[i] = true;
+        command_interfaces_[i].set_value(pos);
+      } else {
+        // Defer initialization to the first valid update() tick if hardware state is transiently NaN
+        has_valid_pos_[i] = false;
+        RCLCPP_WARN(
+          get_node()->get_logger(),
+          "Joint %s position is non-finite on activation; waiting for valid state in update().",
+          joint_names_[i].c_str());
+      }
     }
 
     // Invalidate stale references on activation
@@ -239,8 +279,8 @@ public:
     const auto &cmd_data = *commands_buffer_.readFromRT();
     double dt = period.seconds();
 
-    // Guard against negative time steps
-    if (dt <= 0.0) {
+    // Guard against negative or zero time steps
+    if (!std::isfinite(dt) || dt <= 0.0) {
       return controller_interface::return_type::OK;
     }
 
@@ -257,18 +297,55 @@ public:
     const bool is_timed_out = !cmd_data.received ||
       (std::chrono::duration<double>(now - cmd_data.timestamp).count() > cmd_timeout_sec_);
 
+    const bool has_urdf_limits = urdf_ready_.load(std::memory_order_acquire);
+
+    // Allow up to 100 consecutive ticks (~0.1-1.0 s) for hardware position interfaces to populate after activation
+    constexpr size_t MAX_NAN_POS_TICKS = 100;
+
     for (size_t i = 0; i < n_joints_; i++) {
       double current_pos = state_interfaces_[i * 2].get_value();
       double current_vel = state_interfaces_[i * 2 + 1].get_value();
 
-      // State interface validation
-      if (!std::isfinite(current_pos) || !std::isfinite(current_vel)) {
-        RCLCPP_ERROR_THROTTLE(
+      // Handle transient NaN position states on startup vs persistent hardware faults
+      if (!std::isfinite(current_pos)) {
+        if (++nan_pos_ticks_[i] > MAX_NAN_POS_TICKS) {
+          RCLCPP_ERROR_THROTTLE(
+            get_node()->get_logger(), *get_node()->get_clock(), 1000,
+            "Persistent non-finite position state on joint %s (pos=%f). Halting.",
+            joint_names_[i].c_str(), current_pos);
+          return controller_interface::return_type::ERROR;
+        }
+        RCLCPP_WARN_THROTTLE(
           get_node()->get_logger(), *get_node()->get_clock(), 1000,
-          "Invalid non-finite hardware state on joint %s (pos=%f, vel=%f). Halting.",
-          joint_names_[i].c_str(), current_pos, current_vel);
-        return controller_interface::return_type::ERROR;
+          "Waiting for finite position state on joint %s (tick %zu/%zu)...",
+          joint_names_[i].c_str(), nan_pos_ticks_[i], MAX_NAN_POS_TICKS);
+        continue;
       }
+      nan_pos_ticks_[i] = 0;
+
+      // Latch initial valid position if it was NaN during on_activate()
+      if (!has_valid_pos_[i]) {
+        last_position_cmd_[i] = current_pos;
+        prev_pos_[i] = current_pos;
+        has_valid_pos_[i] = true;
+        command_interfaces_[i].set_value(current_pos);
+        RCLCPP_INFO(
+          get_node()->get_logger(),
+          "Joint %s synced initial valid position: %.4f rad",
+          joint_names_[i].c_str(), current_pos);
+        continue;
+      }
+
+      // Compute finite-difference velocity if hardware joint/velocity interface is NaN
+      double measured_vel = current_vel;
+      if (!std::isfinite(measured_vel)) {
+        measured_vel = (current_pos - prev_pos_[i]) / dt;
+        RCLCPP_INFO_ONCE(
+          get_node()->get_logger(),
+          "Hardware velocity interface for %s is NaN; using finite-difference position derivative.",
+          joint_names_[i].c_str());
+      }
+      prev_pos_[i] = current_pos;
 
       // Tracking error fault check (|x_cmd - x_meas|)
       double tracking_error = std::abs(last_position_cmd_[i] - current_pos);
@@ -285,7 +362,7 @@ public:
       }
 
       // Filter feedback velocity
-      filtered_vel_[i] = filter_alpha_ * current_vel + (1.0 - filter_alpha_) * filtered_vel_[i];
+      filtered_vel_[i] = filter_alpha_ * measured_vel + (1.0 - filter_alpha_) * filtered_vel_[i];
 
       // Safe target reference selection
       double target_vel = is_timed_out ? 0.0 : cmd_data.velocities[i];
@@ -310,16 +387,16 @@ public:
         double error = ramped_vel - filtered_vel_[i];
         double new_integrator = integrator_[i] + error * dt;
 
-        // Position setpoint generation with consistent time scaling
+        // Position setpoint generation (D-term dt cancels out upon velocity-to-position integration)
         double delta_pos = (ramped_vel * dt * ff_gains_[i])
                          + (error * dt * p_gains_[i])
                          + (new_integrator * dt * i_gains_[i])
-                         + ((error - prev_error_[i]) * dt * d_gains_[i]);
+                         + ((error - prev_error_[i]) * d_gains_[i]);
 
         double next_pos = last_position_cmd_[i] + delta_pos;
 
         // Joint limit clamping: only apply to REVOLUTE and PRISMATIC; bypass CONTINUOUS
-        if (joints_urdf_[i] && joints_urdf_[i]->limits &&
+        if (has_urdf_limits && joints_urdf_[i] && joints_urdf_[i]->limits &&
             (joints_urdf_[i]->type == urdf::Joint::REVOLUTE || joints_urdf_[i]->type == urdf::Joint::PRISMATIC)) {
           if (next_pos > joints_urdf_[i]->limits->upper) {
             next_pos = joints_urdf_[i]->limits->upper;
@@ -367,6 +444,9 @@ private:
   std::vector<double> integrator_;
   std::vector<double> prev_error_;
   std::vector<double> filtered_vel_;
+  std::vector<double> prev_pos_;
+  std::vector<bool> has_valid_pos_;
+  std::vector<size_t> nan_pos_ticks_;
   std::vector<double> p_gains_;
   std::vector<double> i_gains_;
   std::vector<double> d_gains_;
@@ -379,9 +459,11 @@ private:
 
   std::vector<urdf::JointConstSharedPtr> joints_urdf_;
   std::shared_ptr<urdf::Model> urdf_;
+  std::atomic<bool> urdf_ready_{false};
 
   realtime_tools::RealtimeBuffer<CommandData> commands_buffer_;
   rclcpp::Subscription<std_msgs::msg::Float64MultiArray>::SharedPtr sub_command_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr sub_urdf_;
   std::unique_ptr<realtime_tools::RealtimePublisher<std_msgs::msg::Float64MultiArray>> pub_;
 
   void commandCB(const std_msgs::msg::Float64MultiArray::SharedPtr msg)
