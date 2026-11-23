@@ -9,8 +9,8 @@ set -Eeuo pipefail
 CONTROLLER_MANAGER="/controller_manager"
 
 # Position controllers
-LEFT_POSITION_CONTROLLER="arm_left_position_controller"
-RIGHT_POSITION_CONTROLLER="arm_right_position_controller"
+LEFT_POSITION_CONTROLLER="arm_left_controller"
+RIGHT_POSITION_CONTROLLER="arm_right_controller"
 
 # Velocity controllers
 LEFT_VELOCITY_CONTROLLER="arm_left_velocity_controller"
