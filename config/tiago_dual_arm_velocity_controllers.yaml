@@ -8,6 +8,12 @@ controller_manager:
     arm_right_velocity_controller:
       type: tiago_velocity_controller_ns/TiagoVelocityController
 
+    torso_velocity_controller:
+      type: tiago_velocity_controller_ns/TiagoVelocityController
+
+    head_velocity_controller:
+      type: tiago_velocity_controller_ns/TiagoVelocityController
+
 arm_left_velocity_controller:
   ros__parameters:
     joints:
@@ -21,7 +27,7 @@ arm_left_velocity_controller:
 
     feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
-    p_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+    p_gains: [0.04, 0.03, 0.04, 0.03, 0.05, 0.07, 0.07]
     i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
@@ -41,9 +47,34 @@ arm_right_velocity_controller:
 
     feedforward_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0]
 
-    p_gains: [0.08, 0.05, 0.08, 0.05, 0.10 , 0.15, 0.15]
+    p_gains: [0.04, 0.03, 0.04, 0.03, 0.05, 0.07, 0.07]
     i_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
     d_gains: [0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
 
+    cmd_timeout_seconds: 0.25
+    velocity_filter_alpha: 0.95
+
+torso_velocity_controller:
+  ros__parameters:
+    joints:
+      - torso_lift_joint
+
+    feedforward_gains: [1.0]
+    p_gains: [0.05]
+    i_gains: [0.0]
+    d_gains: [0.0]
+    cmd_timeout_seconds: 0.25
+    velocity_filter_alpha: 0.95
+
+head_velocity_controller:
+  ros__parameters:
+    joints:
+      - head_1_joint
+      - head_2_joint
+
+    feedforward_gains: [1.0, 1.0]
+    p_gains: [0.05, 0.05]
+    i_gains: [0.0, 0.0]
+    d_gains: [0.0, 0.0]
     cmd_timeout_seconds: 0.25
     velocity_filter_alpha: 0.95

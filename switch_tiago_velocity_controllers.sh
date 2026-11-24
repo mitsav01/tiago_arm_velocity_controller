@@ -3,18 +3,22 @@
 set -Eeuo pipefail
 
 # ==========================================================
-# TIAGo Dual Arm Velocity Controller Setup
+# TIAGo Dual Arm, Torso & Head Velocity Controller Setup
 # ==========================================================
 
 CONTROLLER_MANAGER="/controller_manager"
 
-# Position controllers
+# Trajectory controllers
 LEFT_POSITION_CONTROLLER="arm_left_controller"
 RIGHT_POSITION_CONTROLLER="arm_right_controller"
+TORSO_POSITION_CONTROLLER="torso_controller"
+HEAD_POSITION_CONTROLLER="head_controller"
 
 # Velocity controllers
 LEFT_VELOCITY_CONTROLLER="arm_left_velocity_controller"
 RIGHT_VELOCITY_CONTROLLER="arm_right_velocity_controller"
+TORSO_VELOCITY_CONTROLLER="torso_velocity_controller"
+HEAD_VELOCITY_CONTROLLER="head_velocity_controller"
 
 # Gravity compensation controllers
 LEFT_GRAVITY_CONTROLLER="arm_left_gravity_compensation_controller"
@@ -324,52 +328,55 @@ check_gravity_controllers() {
 }
 
 # ==========================================================
-# Activate both velocity controllers after confirmation
+# Activate all velocity controllers after confirmation
 # ==========================================================
 
 optional_activation() {
 
-    local left_state
-    local right_state
-    local left_position_state
-    local right_position_state
+    local controller
+    local state
+    local pos_controller
+    local pos_state
+
+    local -a velocity_controllers=(
+        "$LEFT_VELOCITY_CONTROLLER"
+        "$RIGHT_VELOCITY_CONTROLLER"
+        "$TORSO_VELOCITY_CONTROLLER"
+        "$HEAD_VELOCITY_CONTROLLER"
+    )
+
+    local -a position_controllers=(
+        "$LEFT_POSITION_CONTROLLER"
+        "$RIGHT_POSITION_CONTROLLER"
+        "$TORSO_POSITION_CONTROLLER"
+        "$HEAD_POSITION_CONTROLLER"
+    )
 
     local -a controllers_to_activate=()
 
     log "Checking velocity controllers before activation"
 
-    left_state=$(get_controller_state "$LEFT_VELOCITY_CONTROLLER")
-    right_state=$(get_controller_state "$RIGHT_VELOCITY_CONTROLLER")
+    for controller in "${velocity_controllers[@]}"; do
+        state=$(get_controller_state "$controller")
+        echo "$controller: $state"
 
-    echo "$LEFT_VELOCITY_CONTROLLER: $left_state"
-    echo "$RIGHT_VELOCITY_CONTROLLER: $right_state"
+        if [[ "$state" != "active" && "$state" != "inactive" ]]; then
+            error "$controller is not ready (state: $state)."
+        fi
 
-    # Verify both controllers are loaded.
-    if [[ "$left_state" != "active" && "$left_state" != "inactive" ]]; then
-        error "Left velocity controller is not ready."
-    fi
-
-    if [[ "$right_state" != "active" && "$right_state" != "inactive" ]]; then
-        error "Right velocity controller is not ready."
-    fi
-
-    # Add only inactive controllers to the activation request.
-    if [[ "$left_state" == "inactive" ]]; then
-        controllers_to_activate+=("$LEFT_VELOCITY_CONTROLLER")
-    fi
-
-    if [[ "$right_state" == "inactive" ]]; then
-        controllers_to_activate+=("$RIGHT_VELOCITY_CONTROLLER")
-    fi
+        if [[ "$state" == "inactive" ]]; then
+            controllers_to_activate+=("$controller")
+        fi
+    done
 
     if [[ ${#controllers_to_activate[@]} -eq 0 ]]; then
-        echo "Both velocity controllers are already active."
+        echo "All velocity controllers are already active."
         return 0
     fi
 
     echo
     echo "=================================================="
-    echo "       DUAL ARM VELOCITY CONTROLLER"
+    echo "    WHOLE-BODY VELOCITY CONTROLLERS"
     echo "=================================================="
 
     echo
@@ -380,12 +387,12 @@ optional_activation() {
     done
 
     echo
-    echo "Do you want to activate the velocity controllers?"
+    echo "Do you want to activate all velocity controllers?"
     echo
 
     local response
 
-    if ! read -r -p "Activate both arms? [y/N]: " response; then
+    if ! read -r -p "Activate arms, torso, and head? [y/N]: " response; then
         response=""
     fi
 
@@ -395,24 +402,19 @@ optional_activation() {
 
             log "Performing final safety checks"
 
-            # Verify position controllers are not active.
-            left_position_state=$(get_controller_state "$LEFT_POSITION_CONTROLLER")
-            right_position_state=$(get_controller_state "$RIGHT_POSITION_CONTROLLER")
+            # Verify corresponding trajectory/position controllers are not active.
+            for pos_controller in "${position_controllers[@]}"; do
+                pos_state=$(get_controller_state "$pos_controller")
+                echo "$pos_controller: $pos_state"
 
-            echo "$LEFT_POSITION_CONTROLLER: $left_position_state"
-            echo "$RIGHT_POSITION_CONTROLLER: $right_position_state"
+                if [[ "$pos_state" == "active" ]]; then
+                    error "$pos_controller is active. Refusing velocity controller activation."
+                fi
 
-            if [[ "$left_position_state" == "active" ||
-                  "$right_position_state" == "active" ]]; then
-
-                error "A position controller is active. Refusing velocity controller activation."
-            fi
-
-            if [[ "$left_position_state" == "unknown" ||
-                  "$right_position_state" == "unknown" ]]; then
-
-                error "Cannot verify position controller states. Refusing activation."
-            fi
+                if [[ "$pos_state" == "unknown" ]]; then
+                    error "Cannot verify $pos_controller state. Refusing activation."
+                fi
+            done
 
             # Check gravity compensation controllers.
             check_gravity_controllers
@@ -457,9 +459,13 @@ final_verification() {
 
     local left_state
     local right_state
+    local torso_state
+    local head_state
 
     left_state=$(get_controller_state "$LEFT_VELOCITY_CONTROLLER")
     right_state=$(get_controller_state "$RIGHT_VELOCITY_CONTROLLER")
+    torso_state=$(get_controller_state "$TORSO_VELOCITY_CONTROLLER")
+    head_state=$(get_controller_state "$HEAD_VELOCITY_CONTROLLER")
 
     echo
     echo "=================================================="
@@ -468,14 +474,14 @@ final_verification() {
 
     echo "Left arm : $left_state"
     echo "Right arm: $right_state"
+    echo "Torso    : $torso_state"
+    echo "Head     : $head_state"
 
-    if [[ "$left_state" != "active" && "$left_state" != "inactive" ]]; then
-        error "Left velocity controller final verification failed."
-    fi
-
-    if [[ "$right_state" != "active" && "$right_state" != "inactive" ]]; then
-        error "Right velocity controller final verification failed."
-    fi
+    for controller_state in "$left_state" "$right_state" "$torso_state" "$head_state"; do
+        if [[ "$controller_state" != "active" && "$controller_state" != "inactive" ]]; then
+            error "Velocity controller final verification failed."
+        fi
+    done
 
     echo
     echo "Controller setup completed successfully."
@@ -488,7 +494,7 @@ final_verification() {
 main() {
 
     echo "=================================================="
-    echo "    TIAGo Dual Arm Velocity Controller Setup"
+    echo " TIAGo Whole-Body Velocity Controller Setup"
     echo "=================================================="
 
     check_configuration
@@ -499,15 +505,19 @@ main() {
 
     ros2 control list_controllers -c "$CONTROLLER_MANAGER"
 
-    # Step 1: Handle both position controllers.
+    # Step 1: Deactivate trajectory controllers for arms, torso, and head.
     handle_position_controller "$LEFT_POSITION_CONTROLLER"
     handle_position_controller "$RIGHT_POSITION_CONTROLLER"
+    handle_position_controller "$TORSO_POSITION_CONTROLLER"
+    handle_position_controller "$HEAD_POSITION_CONTROLLER"
 
-    # Step 2: Load both velocity controllers.
+    # Step 2: Load all four velocity controllers.
     load_velocity_controller "$LEFT_VELOCITY_CONTROLLER"
     load_velocity_controller "$RIGHT_VELOCITY_CONTROLLER"
+    load_velocity_controller "$TORSO_VELOCITY_CONTROLLER"
+    load_velocity_controller "$HEAD_VELOCITY_CONTROLLER"
 
-    # Step 3: Ask before activating either arm.
+    # Step 3: Ask before activating all velocity controllers.
     optional_activation
 
     # Step 4: Final verification.
@@ -515,7 +525,7 @@ main() {
 
     echo
     echo "=================================================="
-    echo "       DUAL ARM SETUP FINISHED"
+    echo "       WHOLE-BODY SETUP FINISHED"
     echo "=================================================="
 }
 
